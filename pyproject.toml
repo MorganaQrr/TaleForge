@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taleforge"
+version = "0.1.0"
+description = "Engine modular para RPGs de texto no terminal Linux: marcação inline, ASCII art, menus, áudio em camadas."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Morgana Santos Nunes" }]
+keywords = ["rpg", "text-adventure", "interactive-fiction", "terminal", "engine", "tty"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Games/Entertainment :: Role-Playing",
+]
+dependencies = [
+  "rich>=13",
+  "pygame>=2.5",
+  "pyyaml>=6",
+  "watchdog>=3",
+  "tomli>=2; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+taleforge = "taleforge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["taleforge*"]
+
+[tool.setuptools.package-data]
+taleforge = ["templates/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

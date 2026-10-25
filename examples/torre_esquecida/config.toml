@@ -1,0 +1,38 @@
+[project]
+name  = "A Torre Esquecida"
+start = "inicio"
+
+[text]
+type_speed = 50
+
+[styles.perigo]
+color = "#f44"
+bold  = true
+shake = 2
+
+[styles.sussurro]
+color = "#88a"
+italic = true
+type_speed = 0.6
+
+[audio]
+music_volume = 0.5
+fade_ms      = 800
+
+# Camadas de áudio aninhadas: "criaturas" é sub-camada de "ambiente".
+# O volume final de um som é o produto dos volumes de toda a cadeia.
+[layers.ambiente]
+volume = 0.7
+sounds = [{ file = "vento.wav", loop = true, volume = 0.6 }]
+
+[layers.criaturas]
+parent = "ambiente"
+volume = 0.9
+sounds = [{ files = ["coruja.wav"], every = [6, 14], volume = 0.8 }]
+
+[behavior]
+on_dead_end = "quit"
+end_text    = "— Fim da demonstração —"
+
+[dev]
+hot_reload = false

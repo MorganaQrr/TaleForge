@@ -1,0 +1,5 @@
+rich>=13
+pygame>=2.5
+pyyaml>=6
+watchdog>=3
+tomli>=2; python_version < "3.11"
