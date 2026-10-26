@@ -24,7 +24,7 @@ meu_rpg/
 ```bash
 git clone https://github.com/MorganaQrr/TaleForge.git
 cd TaleForge
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .            # instala o comando `taleforge`
 ```
 
