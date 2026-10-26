@@ -186,7 +186,7 @@ def parse_note(
     known: Callable[[str], str | None],
     *,
     markdown: bool = True,
-    ascii_exts: tuple[str, ...] = (".txt", ".ans", ".asc", ".art"),
+    ascii_exts: tuple[str, ...] = (".txt", ".ans", ".asc", ".art",".md"),
     unknown: list[str] | None = None,
 ) -> list[Token]:
     """Converte o corpo de uma nota em tokens.

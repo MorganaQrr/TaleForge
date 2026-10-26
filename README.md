@@ -201,3 +201,11 @@ pytest
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
+
+## Novidades
+
+### Arte ASCII em arquivos `.md`
+- `.md` agora é aceito como arte ASCII: `![[arte.md]]` ou `[ascii:arte.md]`. Dá para editar a arte no Obsidian, dentro de um bloco de código, e ela aparece embutida na nota.
+- As cercas ``` de abertura e fechamento são removidas automaticamente ao exibir um arquivo `.md`.
+- Cor da arte: `[ascii:arte.md, color=#ed9e00]` (alias em português: `[arte:arte.md, color=#ed9e00]`). Quando uma cor é definida, os códigos ANSI embutidos na arte são descartados para a cor da nota valer.
+- A extensão `.md` já está na lista padrão `ascii.extensions`. Projetos com `[ascii] extensions` próprio no `config.toml` precisam incluí-la.

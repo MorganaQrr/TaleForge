@@ -56,7 +56,7 @@ DEFAULTS: dict[str, Any] = {
     "ascii": {
         "mode": "line",          # instant | line
         "line_delay": 0.04,
-        "extensions": [".txt", ".ans", ".asc", ".art"],
+        "extensions": [".txt", ".ans", ".asc", ".art",".md"],
     },
     "menu": {
         "show_numbers": True,

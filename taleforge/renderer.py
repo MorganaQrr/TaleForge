@@ -227,6 +227,18 @@ class Renderer:
                 self.sleep(delay)
         self.col, self.line, self.last_char = 0, [], "\n"
 
+    @staticmethod
+    def _strip_fences(text: str) -> str:
+        """Remove ``` de abertura/fechamento (arquivos .md feitos para o Obsidian)."""
+        lines = text.split("\n")
+        first = next((i for i, l in enumerate(lines) if l.strip()), None)
+        if first is not None and lines[first].lstrip().startswith("```"):
+            lines = lines[first + 1:]
+        last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+        if last is not None and lines[last].strip() == "```":
+            lines = lines[:last]
+        return "\n".join(lines)
+
     def print_ascii(self, name: str, state: TextState, color: str | None = None,
                     align: str = "left", mode: str | None = None) -> None:
         path = resolve_asset(self.cfg, name, "ascii")
@@ -234,11 +246,14 @@ class Renderer:
             self.engine.warn(f"arte ASCII não encontrada: {name}")
             return
         text = path.read_text(encoding="utf-8", errors="replace").rstrip("\n")
+        if path.suffix.lower() == ".md":
+            text = self._strip_fences(text)
+        if state.color or color:  # cor escolhida pela nota vence ANSI embutido
+            text = _ANSI_RE.sub("", text)
         style = state.style()
         if color:
             style = style + Style(color=color)
         self.print_block(text, style, mode, align)
-
     def rule(self) -> None:
         self.ensure_newline()
         self.write(self.paint("─" * min(self.width, 60), self.theme("rule")) + "\n")
