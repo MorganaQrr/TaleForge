@@ -19,7 +19,7 @@ from .audio import AudioManager
 from .config import Config
 from .directives import parse_hook_line
 from .loader import Note, NoteLoader, NoteNotFound
-from .markup import options_of, parse_note
+from .markup import Option, options_of, parse_note 
 from .registry import _DEFAULT_HOOKS, Registry, collecting
 from .renderer import Renderer, TextState
 from .watch import Watcher
@@ -59,6 +59,8 @@ class Engine:
         self._nav: _Nav | None = None
         self._changed = threading.Event()
         self._watcher: Watcher | None = None
+        self.extra_options: dict[str, str] = {}
+        self.global_options: dict[str, str] = {}
 
         self.registry = Registry(self.config.get("directives.aliases"),
                                  self.config.get("directives.disabled", []))
@@ -220,6 +222,9 @@ class Engine:
             nav, self._nav = self._nav, None
 
     def _play(self, note: Note, reloading: bool = False) -> None:
+        # Para evitar de ter opções da nota anterior nas proximas limpamos o dicionário do extra_optios{}
+        self.extra_options = {}
+        
         self._apply_scene(note)
         r = self.renderer
         if reloading or self.config.get("behavior.clear_on_scene", True):
@@ -232,6 +237,14 @@ class Engine:
         if self._nav:  # [goto], [end] ou hook durante o texto
             return
         options = options_of(tokens)
+
+        # Opções extras (extra_options{}) =============================
+        for name,content in self.extra_options.items():
+            options.append(Option(content,name))
+        # opções globais (global_options{})
+        for name,content in self.global_options.items():
+            options.append(Option(content,name))
+        #==============
         if not options:
             self._dead_end()
             return
@@ -314,6 +327,13 @@ class Engine:
         if self._watcher:
             self._watcher.stop()
             self._watcher = None
+    def add_option(self,name,content,target=None):
+
+        if target is  None:
+            target = self.extra_options
+        target[name] = content
+        
+    
 
 
 # --------------------------------------------------------- hooks embutidos
