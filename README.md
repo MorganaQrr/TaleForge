@@ -1,28 +1,3 @@
-# Diagnóstico + README + comandos git
-
-## O que está desatualizado no README
-
-Comparando o README com o código que você me mandou, o que **não está documentado** (ou está desatualizado):
-
-| Recurso | Onde existe no código | No README atual |
-|---------|----------------------|-----------------|
-| **Voice / sons de digitação** (`[voice:...]`, `[voice]` no config, `taleforge/voices/`) | `audio.py`, `directives.py`, `config.py`, `renderer.py` | ❌ ausente |
-| **UI sound** (`[ui_sound]` no config, `[som_menu]`, frontmatter `ui_sound:`) | `audio.py`, `config.py`, `directives.py`, `engine.py` | ❌ ausente |
-| **Sistema de tags** (`[tag: ...]`, `tags:` no frontmatter, hooks `tag_<nome>` / `on_tag`) | `engine.py`, `markup.py` | ❌ ausente |
-| **`ask` hook / `engine.ask()`** | `engine.py` + `hooks.py` (usuário) | ❌ ausente |
-| **`extra_options` / `global_options` / `add_option` / `remove_option`** | `engine.py` | ❌ ausente |
-| **`[voice:...]`** como diretiva de estado | `directives.py` | ❌ ausente |
-| **`[som_menu]`** como diretiva de evento | `directives.py` | ❌ ausente |
-| **`[tag: ...]`** como diretiva de cena | `markup.py` (strip) + `engine.py` | ❌ ausente |
-| **Pasta `taleforge/voices/`** para banco de vozes padrão | `audio.py` (`_voice_paths`) | ❌ ausente |
-| **`assets/audio/ui/`** para sons de menu | `audio.py` (`ui()`) | ❌ ausente |
-
-O resto do README está ok. Vou reescrever os blocos afetados e colar tudo inteiro pra facilitar.
-
----
-
-## `README.md` completo — pode colar
-
 ```markdown
 # TaleForge
 
