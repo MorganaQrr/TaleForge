@@ -1,4 +1,3 @@
-```markdown
 # TaleForge
 
 Engine modular em Python para **RPGs de texto no terminal Linux (TTY)**.
