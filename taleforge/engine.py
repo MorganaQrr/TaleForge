@@ -19,7 +19,7 @@ from .audio import AudioManager
 from .config import Config
 from .directives import parse_hook_line
 from .loader import Note, NoteLoader, NoteNotFound
-from .markup import Option, options_of, parse_note 
+from .markup import Option, options_of, parse_note
 from .registry import _DEFAULT_HOOKS, Registry, collecting
 from .renderer import Renderer, TextState
 from .watch import Watcher
@@ -61,6 +61,7 @@ class Engine:
         self._watcher: Watcher | None = None
         self.extra_options: dict[str, str] = {}
         self.global_options: dict[str, str] = {}
+        self.ignored_options: set[str] = set()
 
         self.registry = Registry(self.config.get("directives.aliases"),
                                  self.config.get("directives.disabled", []))
@@ -222,10 +223,16 @@ class Engine:
             nav, self._nav = self._nav, None
 
     def _play(self, note: Note, reloading: bool = False) -> None:
-        # Para evitar de ter opções da nota anterior nas proximas limpamos o dicionário do extra_optios{}
+        # Para evitar de ter opções da nota anterior nas próximas, limpamos os dicionários
         self.extra_options = {}
-        
+        self.ignored_options = set()
+        self.extra_options = {}
+        self.ignored_options = set()
+        self.audio.reset_ui_sounds()
         self._apply_scene(note)
+        self._run_tag_hooks(note)
+        self._apply_scene(note)
+        self._run_tag_hooks(note)  # <-- Roda os hooks de todas as tags da nota!
         r = self.renderer
         if reloading or self.config.get("behavior.clear_on_scene", True):
             r.clear()
@@ -239,12 +246,14 @@ class Engine:
         options = options_of(tokens)
 
         # Opções extras (extra_options{}) =============================
-        for name,content in self.extra_options.items():
-            options.append(Option(content,name))
+        for name, content in self.extra_options.items():
+            options.append(Option(content, name))
         # opções globais (global_options{})
-        for name,content in self.global_options.items():
-            options.append(Option(content,name))
-        #==============
+        for name, content in self.global_options.items():
+            if content == note.name or name in self.ignored_options or content in self.ignored_options:
+                continue
+            options.append(Option(content, name))
+        # ============================================================
         if not options:
             self._dead_end()
             return
@@ -299,6 +308,14 @@ class Engine:
                 self.audio.music(str(track))
         if meta.get("sound"):
             self.audio.soundFX(str(meta["sound"]))
+        if "ui_sound" in meta:
+            ui = meta["ui_sound"]
+            if isinstance(ui, dict):
+                for kind in ("move", "select"):
+                    if kind in ui:
+                        self.audio.set_ui_sound(kind, str(ui[kind]) if ui[kind] else None)
+            elif ui in (False, "off", "false"):
+                self.audio.set_ui_sound("off", None)
 
     # ------------------------------------------------------------ hot-reload
     def _start_watch(self) -> None:
@@ -327,13 +344,72 @@ class Engine:
         if self._watcher:
             self._watcher.stop()
             self._watcher = None
-    def add_option(self,name,content,target=None):
 
-        if target is  None:
+    def add_option(self, name, content, target=None):
+        if target is None:
             target = self.extra_options
         target[name] = content
-        
-    
+
+    def remove_option(self, name, target=None):
+        if target is None:
+            target = self.extra_options
+        target.pop(name, None)
+
+    def _run_tag_hooks(self, note: Note) -> None:
+        import re
+        tags: set[str] = set()
+
+        # 1. Pega tags do frontmatter YAML (se houver: tags: [title, menu])
+        meta_tags = note.meta.get("tags", [])
+        if isinstance(meta_tags, str):
+            meta_tags = [t.strip() for t in meta_tags.split(",")]
+        for t in (meta_tags or []):
+            tags.add(str(t).lstrip("#").strip().lower())
+
+        # 2. Pega tags de [tag: #title, #outra] escritas no corpo da nota
+        for m in re.finditer(r"\[tag:([^\[\]\n]+)\]", note.body, re.I):
+            for raw_t in re.split(r"[,\s]+", m.group(1).strip()):
+                clean_t = raw_t.lstrip("#").strip().lower()
+                if clean_t:
+                    tags.add(clean_t)
+
+        # 3. Dispara os hooks correspondentes para cada tag encontrada
+        for tag in tags:
+            # Se existir um @hook("tag_title"), chama ele!
+            hook_name = f"tag_{tag}"
+            if hook_name in self.hooks:
+                self.call_hook(hook_name)
+            # Se existir um @hook("on_tag") genérico, passa o nome da tag como argumento
+            if "on_tag" in self.hooks:
+                self.call_hook("on_tag", [tag])
+
+    def ask(self, prompt: str = "", state_key: str | None = None, default: str = "") -> str:
+        """Renderiza o prompt com self.say e coleta input restaurando o echo do terminal."""
+        if prompt:
+            self.say(prompt, newline=False)
+
+        try:
+            import termios
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            new_settings = termios.tcgetattr(fd)
+            # Liga de volta o modo canônico (esperar Enter) e o Echo (mostrar letras na tela)
+            new_settings[3] = new_settings[3] | termios.ICANON | termios.ECHO
+            termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
+            try:
+                resposta = input().strip()
+            finally:
+                # Devolve o terminal exatamente para o estado da engine
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            # Fallback caso rode fora de um TTY padrão
+            resposta = input().strip()
+
+        valor_final = resposta if resposta else default
+        if state_key:
+            self.state[state_key] = valor_final
+
+        return valor_final
 
 
 # --------------------------------------------------------- hooks embutidos
@@ -368,3 +444,9 @@ def _hook_reload(engine: Engine, *args) -> None:
 def _hook_goto(engine: Engine, note: str = "", *args) -> None:
     if note:
         engine.goto(note)
+
+
+@_builtin("ask")
+def _hook_ask(engine: Engine, state_key: str = "resposta", *prompt_parts) -> None:
+    prompt = " ".join(prompt_parts) + " " if prompt_parts else "> "
+    engine.ask(prompt, state_key=state_key)

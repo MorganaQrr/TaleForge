@@ -73,7 +73,9 @@ TOKEN_RE = re.compile(
 )
 FENCE_RE = re.compile(r"^```[^\n]*\n(.*?)^```[ \t]*$\n?", re.S | re.M)
 OPT_ONLY_RE = re.compile(r"\s*(?:\[\[[^\[\]\n]+?\]\]\s*)+")
+# Em markup.py (perto da linha 74)
 COMMENT_RE = re.compile(r"%%.*?%%", re.S)
+TAG_DIR_RE = re.compile(r"\[tag:([^\[\]\n]+)\]\n?", re.I)
 
 _BOLD = re.compile(r"(\*\*|__)(?=\S)(.+?)(?<=\S)\1")
 _ITAL_STAR = re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])")
@@ -195,6 +197,7 @@ def parse_note(
     (tags desconhecidas permanecem como texto literal).
     """
     body = COMMENT_RE.sub("", body.replace("\r\n", "\n")).strip("\n")
+    body = TAG_DIR_RE.sub("", body) # <-- Remove [tag: ...] do texto visível
     tokens: list[Token] = []
     pos = 0
     for m in FENCE_RE.finditer(body):

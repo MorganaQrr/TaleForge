@@ -27,10 +27,10 @@ from typing import TYPE_CHECKING, Any
 
 from .paths import resolve_asset
 
+log = logging.getLogger("taleforge.audio")
+
 if TYPE_CHECKING:  # pragma: no cover
     from .engine import Engine
-
-log = logging.getLogger("taleforge.audio")
 
 
 def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -317,6 +317,12 @@ class Layer:
 
 class AudioManager:
     def __init__(self, engine: "Engine"):
+        self._blip_n = 0
+        self._blip_last = 0.0
+        self._voice_cache: dict[str, list] = {}
+        self._ui_cache: dict[str, Any] = {}   # arquivo -> Sound (ou None se falhou)
+        self._ui_override: dict[str, str] = {}
+        self._ui_disabled = False
         self.engine = engine
         self.config = engine.config
         cfg = self.config.section("audio")
@@ -355,6 +361,89 @@ class AudioManager:
             self.warn(f"arquivo de áudio não encontrado: {file}")
         return path
 
+    # -- vozes
+    def blip(self, voice, ch: str) -> None:
+        cfg = self.config
+        if not self.backend.available or not cfg.get("voice.enabled", True):
+            return
+        name = (voice or cfg.get("voice.default", "padrao")).lower()
+        if name in ("off", "none", "mudo") or ch.isspace() or ch in ".,;:!?…":
+            return
+        self._blip_n += 1
+        if self._blip_n % int(cfg.get("voice.every", 2)) != 0:
+            return
+        now = time.monotonic()
+        if now - self._blip_last < float(cfg.get("voice.min_gap", 0.03)):
+            return
+        paths = self._voice_paths(name)
+        if not paths:
+            return
+        sound = self.backend.load(random.choice(paths))
+        if sound is None:
+            return
+        self._blip_last = now
+        sound.set_volume(_clamp(float(cfg.get("voice.volume", 0.5)) * self.master.effective_volume))
+        sound.play()
+
+    def _voice_paths(self, name: str) -> list:
+        cached = self._voice_cache.get(name)
+        if cached is None:
+            voices_dir = Path(__file__).parent / "voices"
+            files = self.config.get(f"voices.{name}.files")
+            if files:
+                cached = [p for f in files if (p := resolve_asset(self.config, f, "audio"))]
+            else:
+                cached = []
+                for ext in (".wav", ".ogg", ".mp3", ".flac"):
+                    cached.extend(sorted(voices_dir.glob(f"{name}*{ext}")))
+            if not cached:
+                self.warn(f"voz não encontrada: {name} (procurado em {voices_dir})")
+            self._voice_cache[name] = cached
+        return cached
+
+    # -- sons de interface (menu)
+    def ui(self, kind: str) -> None:
+        """Toca som de interface: 'move' (navegar) ou 'select' (confirmar)."""
+        if (not self.backend.available
+                or not self.config.get("ui_sound.enabled", True)
+                or self._ui_disabled):
+            return
+        file = self._ui_override.get(kind) or self.config.get(f"ui_sound.{kind}", "")
+        file = (file or "").strip()
+        if not file or file.lower() in ("off", "none", "mudo"):
+            return
+        if file in self._ui_cache:
+            sound = self._ui_cache[file]
+        else:
+            path = self.locate(file)
+            sound = self.backend.load(path) if path is not None else None
+            self._ui_cache[file] = sound
+        if sound is None:
+            return
+        try:
+            sound.set_volume(_clamp(float(self.config.get("ui_sound.volume", 1.0))
+                                    * self.master.effective_volume))
+            sound.play()
+        except Exception as exc:
+            self.warn(f"falha ao tocar som de interface '{file}': {exc}")
+
+    def set_ui_sound(self, kind: str, file: str | None) -> None:
+        """Override por nota. kind='off' desliga tudo; kind='on' religa."""
+        kind = (kind or "").lower().strip()
+        if kind in ("off", "disable", "mudo", "false"):
+            self._ui_disabled = True
+            return
+        if kind in ("on", "enable", "true"):
+            self._ui_disabled = False
+            return
+        if file and file.lower() not in ("off", "none", "mudo"):
+            self._ui_override[kind] = file
+        else:
+            self._ui_override.pop(kind, None)
+
+    def reset_ui_sounds(self) -> None:
+        self._ui_override.clear()
+        self._ui_disabled = False
     # -- camadas
     def _build_layers(self) -> None:
         specs: dict[str, dict] = {k: v for k, v in self.config.section("layers").items()
@@ -393,6 +482,19 @@ class AudioManager:
     def current(self) -> Layer:
         return self.stack[-1] if self.stack else self.master
 
+    def set_volume(self, name: str, value: float) -> None:
+        with self._lock:
+            self.layer(name).set_volume(value)
+
+    def set_sfx_volume(self, v: float) -> None:
+        """Volume só dos efeitos/ambientes (não mexe na música)."""
+        with self._lock:
+            self.sfx_volume = _clamp(float(v))
+            for layer in self.layers.values():
+                for h in layer._handles:
+                    h.category = self.sfx_volume
+                    h.apply_volume()
+
     # -- API pública (camada corrente)
     def soundFX(self, file: str, volume: float = 1.0, loop: bool = False, fade_ms: int = 0):
         with self._lock:
@@ -425,10 +527,6 @@ class AudioManager:
             if layer and layer is not self.master:
                 layer.stop(self.fade_ms if fade_ms is None else fade_ms)
             self.stack = [l for l in self.stack if l.active]
-
-    def set_volume(self, name: str, value: float) -> None:
-        with self._lock:
-            self.layer(name).set_volume(value)
 
     def sync_layers(self, names: list[str]) -> None:
         """Deixa ativas exatamente as camadas de `names` (mais as marcadas persist)."""

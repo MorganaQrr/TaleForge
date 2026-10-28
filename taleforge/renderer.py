@@ -34,9 +34,13 @@ class TextState:
     strike: bool = False
     speed: float = 1.0   # multiplicador da velocidade base (0 = instantâneo)
     shake: int = 0       # amplitude do tremor, em colunas
+    default_color: str | None = None   # cor padrão definida pelo hook "cor"
+    voice: str | None = None
 
     def reset(self) -> None:
+        d = self.default_color
         self.__init__()  # type: ignore[misc]
+        self.default_color = self.color = d
 
     def style(self) -> Style:
         return Style(color=self.color, bgcolor=self.bg, bold=self.bold or None,
@@ -176,6 +180,8 @@ class Renderer:
                 continue
             self._put(ch, style)
             if per_char:
+                if not self.skip and not self.instant:
+                    self.engine.audio.blip(state.voice, ch)
                 self.sleep(per_char * random.uniform(1 - jitter, 1 + jitter) + self._pause_after(text, i))
             i += 1
         if state.shake:
@@ -248,12 +254,13 @@ class Renderer:
         text = path.read_text(encoding="utf-8", errors="replace").rstrip("\n")
         if path.suffix.lower() == ".md":
             text = self._strip_fences(text)
-        if state.color or color:  # cor escolhida pela nota vence ANSI embutido
+        if (state.color and state.color != state.default_color) or color:
             text = _ANSI_RE.sub("", text)
         style = state.style()
         if color:
             style = style + Style(color=color)
         self.print_block(text, style, mode, align)
+
     def rule(self) -> None:
         self.ensure_newline()
         self.write(self.paint("─" * min(self.width, 60), self.theme("rule")) + "\n")
@@ -274,7 +281,10 @@ class Renderer:
     # --------------------------------------------------------------- tokens
     def render(self, tokens: list[Token], note: object | None = None,
                state: TextState | None = None) -> None:
-        ctx = RenderContext(self.engine, self, state or TextState(), note)
+        if state is None:
+            c = self.engine.state.get("cor_padrao")
+            state = TextState(color=c, default_color=c)
+        ctx = RenderContext(self.engine, self, state, note)
         for tok in tokens:
             if self.engine.stop_rendering:
                 break

@@ -26,6 +26,7 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
     hint = str(cfg.get("menu.hint", ""))
     item_style, sel_style = r.theme("menu_item"), r.theme("menu_selected")
     total = len(options) + (1 if hint else 0)
+    n = len(options)
 
     def label(i: int, selected: bool) -> str:
         num = f"{i + 1}. " if show_numbers else ""
@@ -35,7 +36,7 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
     def draw(sel: int, first: bool) -> None:
         if not first:
             r.write(f"\x1b[{total}A")
-        for i in range(len(options)):
+        for i in range(n):
             r.write("\r\x1b[2K" + label(i, i == sel) + "\n")
         if hint:
             r.write("\r\x1b[2K" + r.paint(hint, r.theme("menu_hint")) + "\n")
@@ -54,10 +55,17 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
     while True:
         key = keys.read_key(on_idle=engine.poll_changed)
         if key in ("up", "k", "w"):
-            sel = (sel - 1) % len(options)
+            new_sel = (sel - 1) % n
+            if new_sel != sel:
+                engine.audio.ui("move")
+            sel = new_sel
         elif key in ("down", "j", "s"):
-            sel = (sel + 1) % len(options)
+            new_sel = (sel + 1) % n
+            if new_sel != sel:
+                engine.audio.ui("move")
+            sel = new_sel
         elif key in ("enter", "space"):
+            engine.audio.ui("select")
             return finish(sel)
         elif key == "backspace":
             r.write(f"\x1b[{total}A\r\x1b[J")
@@ -65,9 +73,13 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
         elif key == "reload":
             r.write(f"\x1b[{total}A\r\x1b[J")
             return "reload"
-        elif key.isdigit() and key != "0" and int(key) <= len(options):
-            sel = int(key) - 1
+        elif key.isdigit() and key != "0" and int(key) <= n:
+            new_sel = int(key) - 1
+            if new_sel != sel:
+                engine.audio.ui("move")
+            sel = new_sel
             if confirm_numbers:
+                engine.audio.ui("select")
                 return finish(sel)
         draw(sel, False)
 
@@ -89,6 +101,7 @@ def _choose_plain(engine: "Engine", options: list[Option]) -> int | str:
             return "quit"
         line = line.strip()
         if line.isdigit() and 1 <= int(line) <= len(options):
+            engine.audio.ui("select")
             return int(line) - 1
         if line.lower() in ("q", "sair"):
             return "quit"

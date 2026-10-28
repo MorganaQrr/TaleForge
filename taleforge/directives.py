@@ -224,3 +224,23 @@ def parse_hook_line(line: str) -> tuple[str, list[str]]:
     except ValueError:
         parts = line.split()
     return (parts[0].lower(), parts[1:]) if parts else ("", [])
+
+@directive("voice", kind="state")
+def voice(ctx, value, closing):
+    ctx.state.voice = None if closing or not value else     value.strip().lower()
+
+@directive("som_menu")
+def _dir_som_menu(ctx, value, closing):
+    if closing:
+        return
+    value = (value or "").strip()
+    if not value or value.lower() in ("off", "none", "mudo", "disable"):
+        ctx.engine.audio.set_ui_sound("off", None)
+        return
+    for pair in value.split():
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            ctx.engine.audio.set_ui_sound(k.strip().lower(), v.strip())
+        else:
+            # "som_menu: click.wav" sem chave → só troca o "move"
+            ctx.engine.audio.set_ui_sound("move", pair)

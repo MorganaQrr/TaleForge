@@ -20,6 +20,19 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 CONFIG_NAMES = ("config.toml", "settings.toml", "settings.yaml", "settings.yml")
 
 DEFAULTS: dict[str, Any] = {
+    "ui_sound": {
+        "enabled": True,       # liga/desliga todos os sons de interface
+        "move": "",            # arquivo relativo a assets/audio (vazio = silêncio)
+        "select": "",
+        "volume": 1.0,
+    },
+    "voice": {
+    "enabled": True, 
+    "default": "padrao", 
+    "volume": 0.5, 
+    "every": 2, 
+    "min_gap": 0.03},
+    
     "project": {"name": "TaleForge", "start": "inicio"},
     "paths": {
         "content": "content",
