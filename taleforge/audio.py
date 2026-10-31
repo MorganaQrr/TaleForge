@@ -170,6 +170,9 @@ class Layer:
         self._scheduled: list[_Scheduled] = []
         self._music: Handle | None = None
         self._music_file: str | None = None
+
+        self._music_paused = False
+        self._music_restart_on_resume = False
         if parent:
             parent.children[name] = self
 
@@ -220,7 +223,8 @@ class Layer:
     def music(self, file: str, volume: float = 1.0, loop: bool = True,
               fade_ms: int | None = None) -> Handle | None:
         """Toca uma trilha contínua; trocar de trilha substitui a anterior da camada."""
-        if self._music_file == file and self._music and self._music.alive():
+        if (self._music_file == file and self._music
+                and (self._music_paused or self._music.alive())):
             self._music.base = volume
             self._music.apply_volume()
             return self._music
@@ -257,6 +261,48 @@ class Layer:
         if self._music:
             self._music.stop(fade_ms)
         self._music, self._music_file = None, None
+        self._music_paused = False
+        self._music_restart_on_resume = False
+    def music_pause(self, restart_on_resume: bool = False) -> None:
+        """Pausa a trilha atual mantendo a posição.
+        Se `restart_on_resume`, o próximo resume recomeça do zero."""
+        if not self._music or self._music_paused:
+            return
+        try:
+            if self._music.stream:
+                self.manager.backend.pg.mixer.music.pause()
+            elif self._music.channel is not None:
+                self._music.channel.pause()
+        except Exception:
+            pass
+        self._music_paused = True
+        if restart_on_resume:
+            self._music_restart_on_resume = True
+
+    def music_resume(self, restart: bool = False) -> None:
+        """Despausa a trilha. Se `restart` (ou se foi pausada com -r), recomeça do zero."""
+        if not self._music:
+            return
+        restart = restart or self._music_restart_on_resume
+        if restart and self._music_file:
+            file = self._music_file
+            vol = self._music.base
+            self._music.stop()
+            self._music = None
+            self._music_file = None
+            self._music_paused = False
+            self._music_restart_on_resume = False
+            self.music(file, vol)
+            return
+        try:
+            if self._music.stream:
+                self.manager.backend.pg.mixer.music.unpause()
+            elif self._music.channel is not None:
+                self._music.channel.unpause()
+        except Exception:
+            pass
+        self._music_paused = False
+        self._music_restart_on_resume = False
 
     def every(self, files: str | list[str], min_s: float, max_s: float,
               volume: float = 1.0, fade_ms: int = 0) -> None:
@@ -507,6 +553,13 @@ class AudioManager:
     def music_stop(self, fade_ms: int | None = None) -> None:
         with self._lock:
             self.current.music_stop(self.fade_ms if fade_ms is None else fade_ms)
+    def music_pause(self, restart_on_resume: bool = False) -> None:
+        with self._lock:
+            self.current.music_pause(restart_on_resume)
+
+    def music_resume(self, restart: bool = False) -> None:
+        with self._lock:
+            self.current.music_resume(restart)
 
     # -- controle de cenas
     def enter_layer(self, name: str) -> Layer:

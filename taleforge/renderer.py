@@ -111,10 +111,12 @@ class Renderer:
     def paint(self, text: str, style: Style) -> str:
         return style.render(text, color_system=COLOR_SYSTEMS.get(self.console.color_system or ""))
 
-    def sleep(self, seconds: float, skippable: bool = True) -> None:
-        if seconds <= 0 or self.instant or self.skip:
+    def sleep(self, seconds: float, skippable: bool = True, force: bool = False) -> None:
+        if seconds <= 0 or self.instant:
             return
-        if skippable and self.cfg.get("text.skippable", True) and keys.is_interactive():
+        if not force and self.skip:
+            return
+        if not force and skippable and self.cfg.get("text.skippable", True) and keys.is_interactive():
             if keys.poll_key(seconds) is not None:
                 self.skip = True
             return

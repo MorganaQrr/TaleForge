@@ -62,6 +62,8 @@ class Engine:
         self.extra_options: dict[str, str] = {}
         self.global_options: dict[str, str] = {}
         self.ignored_options: set[str] = set()
+        self.menu_selection: int = 0
+
 
         self.registry = Registry(self.config.get("directives.aliases"),
                                  self.config.get("directives.disabled", []))
@@ -164,6 +166,14 @@ class Engine:
     def quit(self) -> None:
         self._nav = _Nav("quit")
 
+    def choose(self, index: int) -> None:
+        """Pré-seleciona a opção `index` (0-based) no próximo menu.
+        Útil para hooks que fazem `reload_note()`: o cursor abre onde estava."""
+        try:
+            self.menu_selection = max(0, int(index))
+        except (TypeError, ValueError):
+            self.menu_selection = 0
+
     # ------------------------------------------------------------------ run
     def run(self, start: str | None = None) -> None:
         start = start or str(self.config.get("project.start", "inicio"))
@@ -226,6 +236,8 @@ class Engine:
         # Para evitar de ter opções da nota anterior nas próximas, limpamos os dicionários
         self.extra_options = {}
         self.ignored_options = set()
+        if not reloading:
+            self.menu_selection = 0
         self.extra_options = {}
         self.ignored_options = set()
         self.audio.reset_ui_sounds()

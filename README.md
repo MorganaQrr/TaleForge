@@ -59,22 +59,102 @@ Diretivas têm o formato `[atributo:valor]`. As de **estado** valem até `[/atri
 | `shake` | estado | `[shake:3]…[/shake]` | O texto digitado treme (amplitude em colunas) |
 | `style` | estado | `[style:perigo]…[/style]` | Aplica um preset de `[styles.perigo]` do config |
 | `voice` | estado | `[voice:evil]…[/voice]` | Voz de digitação (blips enquanto o texto é digitado). `[voice:off]` silencia |
-| `pause` | evento | `[pause:1.5]` | Pausa em segundos |
-| `wait` | evento | `[wait]` | Espera uma tecla |
+| `pause` | evento | `[pause:1.5]` / `[pause:1.5, force=true]` | Pausa em segundos. **`force=true`** = obrigatória, Enter não pula (ver [Pausas obrigatórias](#pausas-obrigatórias)) |
+| `wait` | evento | `[wait]` | Espera uma tecla (ignora skip) |
 | `jolt` | evento | `[jolt:3]` | Treme a linha atual uma vez |
 | `clear` / `rule` | evento | `[clear]`, `---` | Limpa a tela / linha horizontal |
 | `ascii` | evento | `[ascii:dragao.txt, color=red, align=center]` | Carrega arte ASCII (ou use `![[dragao.txt]]`) |
 | `sound` | evento | `[sound:passos.ogg, volume=0.8, loop=true]` | Efeito pontual (`soundFX`) |
-| `music` | evento | `[music:tema.ogg, volume=0.6, fade=1500]` / `[music:stop]` | Trilha contínua |
+| `music` | evento | `[music:tema.ogg, volume=0.6, fade=1500]` / `stop` / `pause` / `play` | Trilha contínua (ver [Pausar e retomar trilhas](#pausar-e-retomar-trilhas)) |
+| `music_stop` | evento | `[music_stop]` / `[music_stop:1000]` | Alias curto para `[music:stop]` |
 | `layer` / `stop_layer` | evento | `[layer:criaturas]…[/layer]` | Ativa uma camada de áudio; sons seguintes entram nela |
 | `volume` | evento | `[volume:criaturas=0.3]` | Ajusta volume de uma camada |
 | `som_menu` | evento | `[som_menu:move=x.wav select=y.wav]` | Troca os sons do menu daqui pra frente; `[som_menu:off]` silencia |
+| `set` | cena | `[set:hp=100]` / `[set:chars.x.nome=Colosso]` | Escreve em `engine.state` (ver [Manipulando estado](#manipulando-estado)) |
 | `tag` | cena | `[tag: #title, #magia]` | Dispara hooks `tag_title`, `tag_magia` e o `on_tag` genérico (não aparece no texto) |
 | `hook` | evento | `[hook:dado 20]` | Chama um hook do projeto |
 | `goto` / `end` | evento | `[goto:cap2]`, `[end]` | Salta de nota ao fim do texto / encerra o jogo |
 
 Também: `**negrito**`, `*itálico*`, `` `código` ``, `# Título`, `> citação`, `---` (desligue com `text.markdown = false`); blocos ```` ``` ```` imprimem arte ASCII escrita na própria nota; `%% comentário %%` é ignorado; `\[` escapa um colchete. Tags desconhecidas ficam como texto (o `check` avisa).
 Os nomes têm *aliases* em português configuráveis (`[cor:red]`, `[pausa:1]`, `[tremor:3]`, `[som:x.wav]`… veja `directives.aliases`).
+
+### Pausas obrigatórias
+
+Por padrão, qualquer tecla durante a digitação marca `skip = True` e todos os `[pause:...]` viram instantâneos. Para **forçar** uma pausa que o jogador **não** consegue pular:
+
+```markdown
+O silêncio se estende.
+
+[pause:2, force=true]
+
+Algo se move.
+```
+
+- `force=true` (aceita também `obrigatorio=true`, `r=true`, `1`, `sim`, `yes`, `on`)
+- Ignora `self.skip` **e** `text.skippable` do config
+- **Não** ignora `text.instant` / `--instant` — em CI/teste a pausa continua pulando, de propósito
+- Para pausa *com* interação do jogador, use `[wait]` (bloqueia até tecla, também ignora skip)
+
+Os 3 frameworks de pausa:
+
+| Diretiva | Espera | Pulável? |
+|----------|--------|----------|
+| `[pause:1]` | tempo | ✅ sim (qualquer tecla) |
+| `[pause:1, force=true]` | tempo | ❌ não |
+| `[wait]` | tecla | ❌ não (é o próprio objetivo) |
+
+### Manipulando estado
+
+`[set:caminho=valor]` escreve em `engine.state` (equivalente a `engine.state["a"]["b"] = ...` em hook). Aceita caminho pontilhado, dicts aninhados e listas:
+
+```markdown
+[set:nome_jogador=Demiurgo]                → state["nome_jogador"] = "Demiurgo"
+[set:hp=100]                                → 100 (int)
+[set:pi=3.14]                               → 3.14 (float)
+[set:flag=true]                             → True
+[set:tmp=none]                              → None
+[set:senha="1234"]                          → "1234" (força string)
+[set:chars.colosso.nome=Colosso]            → dict aninhado (cria se faltar)
+[set:party.0.hp=50]                         → lista (índice deve existir)
+```
+
+A conversão de tipo é automática (`_coerce`): `int` → `float` → `bool`/`None` → string. Use aspas para **forçar** string (importante quando o valor seria interpretado: `[set:senha="1234"]` mantém `"1234"`, sem aspas viraria int).
+
+**Não** avalia expressões: `[set:x=x+1]` grava a string literal `"x+1"`. Para incrementar, use `add` (hook) ou calcule antes num hook.
+
+### Pré-seleção de menu
+
+Hooks que fazem `reload_note()` (ex.: trocar volume, cor, voz) re-renderizam a cena e **reabrem o menu**. Para que o cursor fique onde estava:
+
+```python
+@hook("vol")
+def vol(engine, delta="0.1"):
+    v = engine.audio.master.volume + float(delta)
+    engine.audio.set_volume("master", round(max(0.0, min(1.0, v)), 2))
+    engine.reload_note()
+```
+
+Com `engine.choose(index)` explícito:
+
+```python
+@hook("vol")
+def vol(engine, delta="0.1"):
+    ...
+    engine.choose(0)      # próximo menu abre em "+" (índice 0)
+    engine.reload_note()
+```
+
+Ou deixe o menu gerenciar sozinho: **`menu.py` grava `engine.menu_selection`** a cada ↑/↓/número, e **`_play(reloading=False)` zera**. Então `reload_note()` **já preserva** o cursor — sem precisar de `engine.choose()`. Use `choose()` só para forçar uma posição diferente da que o jogador deixou.
+
+API:
+
+| Chamada | Efeito |
+|---------|--------|
+| `engine.choose(0)` | próximo menu abre com `+` |
+| `engine.choose(2)` | próximo menu abre com "Voltar" |
+| `engine.menu_selection` | leitura (debug) |
+| `reload_note()` | preserva a posição atual |
+| `goto()`, `back()` | resetam para 0 |
 
 ## Opções e navegação
 
@@ -89,10 +169,10 @@ Você chega a uma bifurcação.
 [[!quit|Desistir]]
 ```
 
-* `[[nota|Rótulo]]` salta para `content/nota.md` (busca por nome em qualquer subpasta; ignora maiúsculas e trata espaço, `_` e `-` como iguais).
-* `[[!hook arg1 arg2|Rótulo]]` dispara um hook. Se ele devolver o nome de uma nota, a engine navega até ela; se devolver `None`, o menu continua.
-* Hooks embutidos: `!quit`, `!back`, `!restart`, `!reload`, `!goto nota`, `!ask variavel palavras…`.
-* Um link no meio de uma frase (`abre [[porta|a porta]]`) aparece destacado no texto e também entra no menu.
+- `[[nota|Rótulo]]` salta para `content/nota.md` (busca por nome em qualquer subpasta; ignora maiúsculas e trata espaço, `_` e `-` como iguais).
+- `[[!hook arg1 arg2|Rótulo]]` dispara um hook. Se ele devolver o nome de uma nota, a engine navega até ela; se devolver `None`, o menu continua.
+- Hooks embutidos: `!quit`, `!back`, `!restart`, `!reload`, `!goto nota`, `!ask variavel palavras…`.
+- Um link no meio de uma frase (`abre [[porta|a porta]]`) aparece destacado no texto e também entra no menu.
 
 Além dos links da nota, o engine aceita **opções dinâmicas** injetadas por hooks (ver `add_option` / `global_options` abaixo).
 
@@ -116,10 +196,8 @@ tags: [title, batalha]
 
 A engine junta as duas listas (sem duplicar), normaliza (`#` removido, minúsculas) e para cada tag chama:
 
-* `tag_<nome>` — o hook específico (`tag_title`, `tag_batalha`, …), **sem argumentos**;
-* `on_tag` — o hook genérico, **recebendo o nome da tag** como argumento.
-
-Assim dá para ter:
+- `tag_<nome>` — o hook específico (`tag_title`, `tag_batalha`, …), **sem argumentos**;
+- `on_tag` — o hook genérico, **recebendo o nome da tag** como argumento.
 
 ```python
 @hook("tag_title")
@@ -146,7 +224,7 @@ def pegar_chave(engine):
     return None                          # ou "nome_da_nota" para navegar
 ```
 
-`engine` oferece `goto()`, `back()`, `restart()`, `quit()`, `history`, `config`, `audio`, `state`, `say()`, `ask()` e as opções dinâmicas abaixo.
+`engine` oferece `goto()`, `back()`, `restart()`, `quit()`, `history`, `config`, `audio`, `state`, `say()`, `ask()`, `choose()` e as opções dinâmicas abaixo.
 
 ### `engine.ask()` e o hook `!ask`
 
@@ -156,7 +234,7 @@ Coleta texto do jogador devolvendo o cursor e o echo ao terminal (funciona dentr
 nome = engine.ask("Como te chamas? ", state_key="nome", default="Anônimo")
 ```
 
-Pelo menu, use o hook:
+Pelo menu:
 
 ```markdown
 [[!ask nome Como te chamas?|Escolher nome]]
@@ -174,15 +252,15 @@ def init(engine):
     engine.add_option("Menu", "menu", engine.global_options)   # opção global
 ```
 
-* `engine.extra_options` — opções **só desta cena**; limpas a cada nova nota.
-* `engine.global_options` — opções **persistentes**, injetadas em todas as notas.
-* `engine.ignored_options` — nomes que **não** devem aparecer no menu (útil para esconder “Menu” em certas notas).
-* `engine.add_option(nome, alvo, target=None)` — adiciona; `target` default é `extra_options`.
-* `engine.remove_option(nome, target=None)` — remove.
+- `engine.extra_options` — opções **só desta cena**; limpas a cada nova nota.
+- `engine.global_options` — opções **persistentes**, injetadas em todas as notas.
+- `engine.ignored_options` — nomes que **não** devem aparecer no menu (útil para esconder "Menu" em certas notas).
+- `engine.add_option(nome, alvo, target=None)` — adiciona; `target` default é `extra_options`.
+- `engine.remove_option(nome, target=None)` — remove.
 
 ## Sons de digitação (voice)
 
-Enquanto o texto é digitado, um som curtinho toca a cada N caracteres — o “blip” que dá voz ao narrador.
+Enquanto o texto é digitado, um som curtinho toca a cada N caracteres — o "blip" que dá voz ao narrador.
 
 **Config:**
 
@@ -197,13 +275,15 @@ min_gap  = 0.03       # intervalo mínimo entre blips (s)
 
 **Onde ficam os arquivos:**
 
-* Banco padrão da engine: `taleforge/voices/<id>.wav` (ou `.ogg`, `.mp3`, `.flac`);
-* Banco do projeto: declare em `[voices.<id>] files = [...]` no `config.toml` (cada caminho é resolvido por `paths.audio`).
+- Banco padrão da engine: `taleforge/voices/<id>.wav` (ou `.ogg`, `.mp3`, `.flac`);
+- Banco do projeto: declare em `[voices.<id>] files = [...]` no `config.toml` (cada caminho é resolvido por `paths.audio`).
+
+Exemplo: `taleforge/voices/evil.wav` é a voz `evil`; `taleforge/voices/oh.wav` é a voz `oh`; `taleforge/voices/padrao.wav` é a voz `padrao`.
 
 **Trocar de voz:**
 
-* Em uma nota: `[voice:evil] … [/voice]`, ou `[voice:evil]` no frontmatter (`[voice] … [/voice]` para encerrar);
-* Em código: `engine.config.set("voice.default", "evil")` (global), ou `state.voice` dentro de um `TextState`.
+- Em uma nota: `[voice:evil] … [/voice]`, ou `[voice:evil]` no frontmatter (`[voice] … [/voice]` para encerrar);
+- Em código: `engine.config.set("voice.default", "evil")` (global), ou `state.voice` dentro de um `TextState`.
 
 `[voice:off]` (ou `mudo`) silencia. Vozes inexistentes geram aviso uma única vez e caem em silêncio.
 
@@ -264,15 +344,17 @@ A precedência é: **override da nota > config > silêncio**.
 
 `![[arte.txt]]` ou `[ascii:arte.txt]` buscam o arquivo em `assets/ascii/` (também aceitam caminho relativo à raiz ou absoluto). Arquivos com códigos ANSI são respeitados. Config: `ascii.mode` (`line` revela linha a linha, `instant`), `ascii.line_delay`.
 
-Arquivos `.md` são aceitos: use `![[arte.md]]` ou `[ascii:arte.md]`, edite a arte no Obsidian dentro de um bloco ``` e as cercas de abertura/fechamento são removidas automaticamente.
+Arquivos `.md` são aceitos: use `![[arte.md]]` ou `[ascii:arte.md]`, edite a arte no Obsidian dentro de um bloco ``` e as cercas de abertura/fechamento são removidas automaticamente. Cor: `[ascii:arte.md, color=#ed9e00]` (descarta ANSI embutido para a cor da nota valer).
+
+A extensão `.md` já está na lista padrão `ascii.extensions`. Projetos com `[ascii] extensions` próprio no `config.toml` precisam incluí-la.
 
 ## Áudio e camadas
 
 `pygame.mixer` por trás de uma API pequena (`taleforge/audio.py`):
 
-* `soundFX(arquivo, volume, loop, fade_ms)` — efeito pontual.
-* `music(arquivo, volume, loop, fade_ms)` — trilha contínua. Na camada raiz usa `pygame.mixer.music` (streaming); em subcamadas, um `Sound` em loop num canal próprio, então várias trilhas podem soar juntas.
-* **Camadas** formam uma árvore: o volume final de um som é o **produto** dos volumes da cadeia (`master × ambiente × criaturas × som`).
+- `soundFX(arquivo, volume, loop, fade_ms)` — efeito pontual.
+- `music(arquivo, volume, loop, fade_ms)` — trilha contínua. Na camada raiz usa `pygame.mixer.music` (streaming); em subcamadas, um `Sound` em loop num canal próprio, então várias trilhas podem soar juntas.
+- **Camadas** formam uma árvore: o volume final de um som é o **produto** dos volumes da cadeia (`master × ambiente × criaturas × som`).
 
 Declare no `config.toml`:
 
@@ -297,6 +379,28 @@ layers: [ambiente, criaturas]   # sincroniza: o que não estiver na lista para (
 sound: porta.wav       # toca ao entrar
 ---
 ```
+
+### Pausar e retomar trilhas
+
+Trilhas tocadas com `music` ou pelo frontmatter `music:` podem ser **pausadas** sem perder a posição e **retomadas** em qualquer nota seguinte:
+
+```markdown
+A floresta engole o som.            [music:pause]
+
+…algumas cenas depois, em outra nota…   [music:play]
+```
+
+| Diretiva | Efeito |
+|----------|--------|
+| `[music:pause]` | pausa a trilha da camada corrente (posição preservada) |
+| `[music:play]` | retoma de onde parou |
+| `[music:play -r]` | retoma **do início** (aceita `[music:play, restart=true]`) |
+| `[music:pause -r]` | pausa **e marca** para recomeçar no próximo `play` |
+| `[music:stop]` | para (libera o canal; posição perdida) |
+
+A pausa é **persistente entre notas** para a camada onde a trilha toca (a raiz `master` mantém a trilha padrão entre cenas). Trocar de trilha com `[music:novo.ogg]` ou parar com `[music:stop]`/`music: null` no frontmatter descarta o estado de pausa.
+
+Código equivalente: `engine.audio.music_pause()`, `engine.audio.music_resume(restart=False)`.
 
 Sem pygame, sem placa de som ou com `audio.enabled = false`, o jogo roda em silêncio. Em máquinas sem áudio use `audio.driver = "dummy"`.
 
@@ -346,12 +450,12 @@ modules = ["meu_plugin"]
 ```
 taleforge/
 ├── cli.py          run / new / check
-├── engine.py       laço principal, navegação, hooks, cenas, tags, ask
+├── engine.py       laço principal, navegação, hooks, cenas, tags, ask, choose
 ├── markup.py       parser da marcação → tokens
 ├── directives.py   diretivas embutidas (usam o mesmo @directive dos plugins)
-├── renderer.py     typewriter, estilos, tremor, ASCII
-├── menu.py         menu navegável (setas/números), sons de UI
-├── audio.py        soundFX(), music(), camadas, voice, ui_sound
+├── renderer.py     typewriter, estilos, tremor, ASCII, pause (force)
+├── menu.py         menu navegável (setas/números), sons de UI, menu_selection
+├── audio.py        soundFX(), music(), camadas, voice, ui_sound, pause/resume
 ├── loader.py       busca de notas + frontmatter
 ├── config.py       padrões + TOML/YAML
 ├── watch.py        hot-reload (watchdog, com fallback por polling)
@@ -369,15 +473,23 @@ pytest
 
 ## Limitações conhecidas
 
-* Só Linux/macOS (usa `termios`); sem TUI em `textual` ainda e sem DSP com `numpy` (a mixagem é feita pelo `pygame.mixer`).
-* O tremor reescreve a linha atual, então vale para texto de uma linha (a quebra de linha automática é feita pela engine).
-* Não há condicionais em opções/texto: use hooks e `engine.state`.
+- Só Linux/macOS (usa `termios`); sem TUI em `textual` ainda e sem DSP com `numpy` (a mixagem é feita pelo `pygame.mixer`).
+- O tremor reescreve a linha atual, então vale para texto de uma linha (a quebra de linha automática é feita pela engine).
+- Não há condicionais em opções/texto: use hooks e `engine.state`.
+- `[set:...]` **não avalia expressões** — `[set:x=x+1]` grava a string literal. Calcule em hook.
 
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
 
 ## Novidades
+
+### `force`, `set`, `choose` e pausa de música
+
+- **`[pause:X, force=true]`** — pausa obrigatória que Enter não pula. Ignora `text.skippable` e `self.skip`, mas **não** `--instant`/`text.instant` (CI continua rápido).
+- **`[set:caminho=valor]`** — escreve em `engine.state` de markup, sem hook. Aceita caminho pontilhado (`chars.colosso.nome`), listas (`party.0.hp`), conversão automática de tipo e string forçada com aspas.
+- **`engine.choose(index)`** e **`engine.menu_selection`** — pré-seleção persistente de menu. `menu.py` sincroniza a posição a cada tecla; `_play(reloading=False)` zera. Hooks com `reload_note()` **já preservam** a posição, sem precisar de código.
+- **`[music:pause]` / `[music:play]` / `[music:play -r]` / `[music:pause -r]`** — pausa/retoma trilhas mantendo a posição (ou recomeçando com `-r`). Equivalente a `engine.audio.music_pause()` / `music_resume(restart=False)`.
 
 ### Voices, UI sound, tags e `ask`
 
@@ -393,6 +505,3 @@ MIT — veja [LICENSE](LICENSE).
 - As cercas ``` de abertura e fechamento são removidas automaticamente ao exibir um arquivo `.md`.
 - Cor da arte: `[ascii:arte.md, color=#ed9e00]` (alias em português: `[arte:arte.md, color=#ed9e00]`). Quando uma cor é definida, os códigos ANSI embutidos na arte são descartados para a cor da nota valer.
 - A extensão `.md` já está na lista padrão `ascii.extensions`. Projetos com `[ascii] extensions` próprio no `config.toml` precisam incluí-la.
-```
-
----

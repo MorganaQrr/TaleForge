@@ -50,8 +50,11 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
     r.ensure_newline()
     for _ in range(int(cfg.get("menu.spacing", 1))):
         r.newline()
-    sel = 0
+    sel = engine.menu_selection
+    if not (0 <= sel < n):
+        sel = 0
     draw(sel, True)
+    
     while True:
         key = keys.read_key(on_idle=engine.poll_changed)
         if key in ("up", "k", "w"):
@@ -59,11 +62,14 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
             if new_sel != sel:
                 engine.audio.ui("move")
             sel = new_sel
+            
+            engine.menu_selection = sel                       # <-- NOVO
         elif key in ("down", "j", "s"):
             new_sel = (sel + 1) % n
             if new_sel != sel:
                 engine.audio.ui("move")
             sel = new_sel
+            engine.menu_selection = sel                       # <-- NOVO
         elif key in ("enter", "space"):
             engine.audio.ui("select")
             return finish(sel)
@@ -78,6 +84,7 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
             if new_sel != sel:
                 engine.audio.ui("move")
             sel = new_sel
+            engine.menu_selection = sel                       # <-- NOVO
             if confirm_numbers:
                 engine.audio.ui("select")
                 return finish(sel)
@@ -102,6 +109,8 @@ def _choose_plain(engine: "Engine", options: list[Option]) -> int | str:
         line = line.strip()
         if line.isdigit() and 1 <= int(line) <= len(options):
             engine.audio.ui("select")
+            engine.menu_selection = int(line) - 1             # <-- NOVO
+            return int(line) - 1
             return int(line) - 1
         if line.lower() in ("q", "sair"):
             return "quit"

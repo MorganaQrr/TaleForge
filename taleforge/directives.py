@@ -111,10 +111,16 @@ def reset(ctx, value, closing):
 
 @directive("pause")
 def pause(ctx, value, closing):
-    """[pause:1.5] — pausa em segundos."""
-    ctx.renderer.sleep(float(value) if value else 0.5)
-
-
+    """[pause:1.5] — pausa em segundos (pulável).
+    [pause:1.5, force=true] — pausa obrigatória, o Enter não pula."""
+    if not value:
+        ctx.renderer.sleep(0.5)
+        return
+    head, kw = split_args(value)
+    secs = float(head) if head else 0.5
+    force = truthy(kw.get("force", kw.get("obrigatorio", kw.get("r", "false"))))
+    ctx.renderer.sleep(secs, force=force)
+    
 @directive("wait")
 def wait(ctx, value, closing):
     """[wait] — espera uma tecla (texto opcional no lugar do ▼)."""
@@ -157,15 +163,42 @@ def sound(ctx, value, closing):
 
 @directive("music")
 def music(ctx, value, closing):
-    """[music:tema.ogg, volume=0.6, fade=1500] — trilha contínua; [music:stop] para."""
-    path, kw = split_args(value)
-    if not path or path.lower() in ("stop", "none", "parar"):
-        ctx.engine.audio.music_stop(int(kw["fade"]) if "fade" in kw else None)
+    """[music:tema.ogg, volume=0.6, fade=1500] — trilha contínua.
+    [music:stop] para. [music:pause] pausa (mantém posição).
+    [music:play] retoma. [music:play -r] recomeça do início.
+    [music:pause -r] pausa e marca para recomeçar ao retomar."""
+    if not value:
         return
-    ctx.engine.audio.music(path, float(kw.get("volume", kw.get("vol", 1.0))),
-                           truthy(kw.get("loop", "true")),
-                           int(kw["fade"]) if "fade" in kw else None)
+    path, kw = split_args(value)
 
+    # Flag "-r" / "--restart" no final do path (aceita "[music:play -r]")
+    restart = False
+    if path:
+        for flag in (" -r", " --restart", " -restart"):
+            if path.lower().endswith(flag):
+                path = path[: -len(flag)].rstrip()
+                restart = True
+                break
+
+    cmd = (path or "").strip().lower()
+    audio = ctx.engine.audio
+
+    if cmd in ("stop", "none", "parar"):
+        audio.music_stop(int(kw["fade"]) if "fade" in kw else None)
+        return
+    if cmd in ("pause", "pausar"):
+        restart = restart or truthy(kw.get("r", kw.get("restart", "false")))
+        audio.music_pause(restart)
+        return
+    if cmd in ("play", "resume", "retomar", "continuar", "tocar"):
+        restart = restart or truthy(kw.get("r", kw.get("restart", "false")))
+        audio.music_resume(restart)
+        return
+    if not path:
+        return
+    audio.music(path, float(kw.get("volume", kw.get("vol", 1.0))),
+                truthy(kw.get("loop", "true")),
+                int(kw["fade"]) if "fade" in kw else None)
 
 @directive("music_stop")
 def music_stop(ctx, value, closing):
@@ -244,3 +277,69 @@ def _dir_som_menu(ctx, value, closing):
         else:
             # "som_menu: click.wav" sem chave → só troca o "move"
             ctx.engine.audio.set_ui_sound("move", pair)
+            
+def _coerce(raw: str):
+    """Converte 'valor' para o tipo óbvio: bool, None, int, float, string.
+    Use aspas para forçar string: [set:senha=\"1234\"]"""
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
+        return raw[1:-1]                      # sempre string
+    low = raw.lower()
+    if low in ("true", "sim", "yes", "on"):
+        return True
+    if low in ("false", "nao", "não", "no", "off"):
+        return False
+    if low in ("none", "null", "vazio"):
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    return raw
+
+
+@directive("set")
+def set_state(ctx, value, closing):
+    """[set:nome_jogador=Demiurgo]              → string
+    [set:hp=100]                          → int
+    [set:pi=3.14]                         → float
+    [set:flag=true]                       → True
+    [set:tmp=none]                        → None
+    [set:senha=\"1234\"]                    → string forçada
+    [set:chars.colosso.nome=Colosso]      → navega dict (cria se faltar)
+    [set:party.0.hp=50]                   → navega lista (índice existe)"""
+    if closing or not value or "=" not in value:
+        return
+    path, _, raw = value.partition("=")
+    path, raw = path.strip(), raw.strip()
+    if not path:
+        return
+
+    val = _coerce(raw)
+    parts = path.split(".")
+    node = ctx.engine.state
+
+    for p in parts[:-1]:
+        if isinstance(node, dict):
+            node = node.setdefault(p, {})
+        elif isinstance(node, list):
+            try:
+                node = node[int(p)]
+            except (ValueError, IndexError):
+                ctx.engine.warn(f"[set] índice inválido: {p}")
+                return
+        else:
+            ctx.engine.warn(f"[set] caminho impossível: {path}")
+            return
+
+    last = parts[-1]
+    if isinstance(node, dict):
+        node[last] = val
+    elif isinstance(node, list):
+        try:
+            node[int(last)] = val
+        except (ValueError, IndexError):
+            ctx.engine.warn(f"[set] índice inválido: {last}")
