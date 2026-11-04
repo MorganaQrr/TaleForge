@@ -343,3 +343,190 @@ def set_state(ctx, value, closing):
             node[int(last)] = val
         except (ValueError, IndexError):
             ctx.engine.warn(f"[set] índice inválido: {last}")
+
+@directive("add")
+def add_state(ctx, value, closing):
+    """[add:hp=10]                    → hp += 10 (int/float)
+    [add:trilhas.perito.Valor=0.5]  → incrementa float
+    [add:inventario=espada]         → append em lista
+    [add:nome=!" "]"                → concatena em string (raro; prefira [set:])
+    [add:contador=1]                → cria com o delta se não existir"""
+    if closing or not value or "=" not in value:
+        return
+    path, _, raw = value.partition("=")
+    path, raw = path.strip(), raw.strip()
+    if not path:
+        return
+
+    delta = _coerce(raw)
+    parts = path.split(".")
+
+    # navega até o nó que contém a chave alvo
+    node = ctx.engine.state
+    for p in parts[:-1]:
+        if isinstance(node, dict):
+            node = node.setdefault(p, {})
+        elif isinstance(node, list):
+            try:
+                node = node[int(p)]
+            except (ValueError, IndexError):
+                ctx.engine.warn(f"[add] índice inválido: {p}")
+                return
+        else:
+            ctx.engine.warn(f"[add] caminho impossível: {path}")
+            return
+
+    last = parts[-1]
+
+    # lê o valor atual
+    if isinstance(node, dict):
+        cur = node.get(last)
+        setter = lambda v: node.__setitem__(last, v)
+    elif isinstance(node, list):
+        try:
+            idx = int(last)
+            cur = node[idx]
+        except (ValueError, IndexError):
+            ctx.engine.warn(f"[add] índice inválido: {last}")
+            return
+        setter = lambda v: node.__setitem__(idx, v)
+    else:
+        ctx.engine.warn(f"[add] caminho impossível: {path}")
+        return
+
+    # decide o comportamento pelo tipo atual
+    if isinstance(cur, list):
+        cur.append(delta)
+    elif (isinstance(cur, (int, float)) and not isinstance(cur, bool)
+          and isinstance(delta, (int, float)) and not isinstance(delta, bool)):
+        setter(cur + delta)
+    elif cur is None:
+        setter(delta)                      # primeira vez: cria com o valor
+    elif isinstance(cur, str):
+        setter(cur + str(delta))           # concatenação (raro)
+    else:
+        ctx.engine.warn(f"[add] tipo não suportado em {path}: {type(cur).__name__}")
+
+@directive("unset")
+def unset_state(ctx, value, closing):
+    """[unset:senha]        → remove a chave
+    [unset:chars.colosso]  → remove do dict aninhado
+    [unset:party.0]        → remove da lista"""
+    if not value:
+        return
+    parts = value.strip().split(".")
+    node = ctx.engine.state
+    for p in parts[:-1]:
+        if isinstance(node, dict) and p in node:
+            node = node[p]
+        elif isinstance(node, list):
+            try:
+                node = node[int(p)]
+            except (ValueError, IndexError):
+                return
+        else:
+            return
+    last = parts[-1]
+    if isinstance(node, dict):
+        node.pop(last, None)
+    elif isinstance(node, list):
+        try:
+            node.pop(int(last))
+        except (ValueError, IndexError):
+            pass
+def _resolve_state(state, path: str):
+    if not path:
+        return None
+    node = state
+    for part in path.split("."):
+        if isinstance(node, dict):
+            node = node.get(part)
+        elif isinstance(node, (list, tuple)):
+            try:
+                node = node[int(part)]
+            except (ValueError, IndexError):
+                return None
+        else:
+            return None
+    return node
+
+
+def _eval_condition(engine, expr: str) -> bool:
+    expr = (expr or "").strip()
+    if not expr:
+        return False
+    negate = False
+    if expr.lower().startswith("not "):
+        negate, expr = True, expr[4:].strip()
+    elif expr.startswith("!"):
+        negate, expr = True, expr[1:].strip()
+
+    op, left, right = None, expr, None
+    for cand in ("!=", ">=", "<=", "=", ">", "<"):
+        idx = expr.find(cand)
+        if idx >= 0:
+            left, right, op = expr[:idx].strip(), expr[idx+len(cand):].strip(), cand
+            break
+
+    val = _resolve_state(engine.state, left)
+    if op is None:
+        result = bool(val)
+    else:
+        rhs = _coerce(right)
+        if op == "=":
+            result = val == rhs
+        elif op == "!=":
+            result = val != rhs
+        else:
+            try:
+                ln, rn = float(val), float(rhs)
+                result = {">": ln > rn, ">=": ln >= rn,
+                          "<": ln < rn, "<=": ln <= rn}[op]
+            except (TypeError, ValueError):
+                result = False
+    return (not result) if negate else result
+
+
+@directive("if", kind="state")
+def if_directive(ctx, value, closing):
+    """[if:cond] … [/if] com [elif:cond] e [else] opcionais.
+    Condições: chave, not chave, !chave, chave=val, chave!=val,
+    chave>N, chave>=N, chave<N, chave<=N. Aceita caminho pontilhado
+    (chars.colosso.nome) e listas (party.0.hp)."""
+    if closing:
+        if ctx.cond_stack:
+            ctx.rendering = ctx.cond_stack.pop()["parent"]
+        return
+    result = _eval_condition(ctx.engine, value or "")
+    ctx.cond_stack.append({"parent": ctx.rendering, "matched": result})
+    ctx.rendering = ctx.rendering and result
+
+
+@directive("elif", kind="event")
+def elif_directive(ctx, value, closing):
+    if closing or not ctx.cond_stack:
+        return
+    frame = ctx.cond_stack[-1]
+    if not frame["parent"] or frame["matched"]:
+        ctx.rendering = False
+        return
+    if _eval_condition(ctx.engine, value or ""):
+        frame["matched"] = True
+        ctx.rendering = True
+    else:
+        ctx.rendering = False
+
+
+@directive("else", kind="event")
+def else_directive(ctx, value, closing):
+    if closing or not ctx.cond_stack:
+        return
+    frame = ctx.cond_stack[-1]
+    if not frame["parent"]:
+        ctx.rendering = False
+        return
+    if frame["matched"]:
+        ctx.rendering = False
+    else:
+        frame["matched"] = True
+        ctx.rendering = True

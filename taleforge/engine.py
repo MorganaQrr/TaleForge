@@ -241,6 +241,7 @@ class Engine:
         self.extra_options = {}
         self.ignored_options = set()
         self.audio.reset_ui_sounds()
+        self.state.pop("_allow_back_override", None) 
         self._apply_scene(note)
         self._run_tag_hooks(note)
         self._apply_scene(note)
@@ -252,10 +253,9 @@ class Engine:
                             markdown=bool(self.config.get("text.markdown", True)),
                             ascii_exts=self._ascii_exts())
         r.begin_note()
-        r.render(tokens, note)
-        if self._nav:  # [goto], [end] ou hook durante o texto
-            return
-        options = options_of(tokens)
+        options = r.render(tokens, note)               # antes: r.render(...); options_of(tokens)
+        if self._nav:
+            retur
 
         # Opções extras (extra_options{}) =============================
         for name, content in self.extra_options.items():

@@ -18,12 +18,31 @@ def choose(engine: "Engine", options: list[Option]) -> int | str:
     return _choose_plain(engine, options)
 
 
+def _allow_back(engine: "Engine") -> bool:
+    """Resolve se backspace está permitido nesta cena.
+    Precedência: override da cena > frontmatter da nota > config global."""
+    cfg = engine.config
+    allow = bool(cfg.get("menu.allow_back", True))
+
+    if allow and engine.current is not None:
+        allow = bool(engine.current.meta.get("allow_back", True))
+
+    if "_allow_back_override" in engine.state:
+        allow = bool(engine.state["_allow_back_override"])
+
+    return allow
+
+
 def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
     r, cfg = engine.renderer, engine.config
+    allow_back = _allow_back(engine)
+
     show_numbers = bool(cfg.get("menu.show_numbers", True))
     confirm_numbers = bool(cfg.get("menu.number_confirms", True))
     cursor = str(cfg.get("theme.menu_cursor", "▶"))
-    hint = str(cfg.get("menu.hint", ""))
+    hint = str(cfg.get(
+        "menu.hint" if allow_back else "menu.hint_no_back", ""
+    ))
     item_style, sel_style = r.theme("menu_item"), r.theme("menu_selected")
     total = len(options) + (1 if hint else 0)
     n = len(options)
@@ -50,11 +69,12 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
     r.ensure_newline()
     for _ in range(int(cfg.get("menu.spacing", 1))):
         r.newline()
+
     sel = engine.menu_selection
     if not (0 <= sel < n):
         sel = 0
     draw(sel, True)
-    
+
     while True:
         key = keys.read_key(on_idle=engine.poll_changed)
         if key in ("up", "k", "w"):
@@ -62,18 +82,19 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
             if new_sel != sel:
                 engine.audio.ui("move")
             sel = new_sel
-            
-            engine.menu_selection = sel                       # <-- NOVO
+            engine.menu_selection = sel
         elif key in ("down", "j", "s"):
             new_sel = (sel + 1) % n
             if new_sel != sel:
                 engine.audio.ui("move")
             sel = new_sel
-            engine.menu_selection = sel                       # <-- NOVO
+            engine.menu_selection = sel
         elif key in ("enter", "space"):
             engine.audio.ui("select")
             return finish(sel)
         elif key == "backspace":
+            if not allow_back:
+                continue      # ignora silenciosamente
             r.write(f"\x1b[{total}A\r\x1b[J")
             return "back"
         elif key == "reload":
@@ -84,7 +105,7 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
             if new_sel != sel:
                 engine.audio.ui("move")
             sel = new_sel
-            engine.menu_selection = sel                       # <-- NOVO
+            engine.menu_selection = sel
             if confirm_numbers:
                 engine.audio.ui("select")
                 return finish(sel)
@@ -94,11 +115,14 @@ def _choose_tty(engine: "Engine", options: list[Option]) -> int | str:
 def _choose_plain(engine: "Engine", options: list[Option]) -> int | str:
     r = engine.renderer
     out = engine.console.file
+    allow_back = _allow_back(engine)
+
     r.ensure_newline()
     for _ in range(int(engine.config.get("menu.spacing", 1))):
         r.newline()
     for i, opt in enumerate(options, 1):
         out.write(f"  {i}. {opt.label}\n")
+
     while True:
         out.write("> ")
         out.flush()
@@ -109,10 +133,12 @@ def _choose_plain(engine: "Engine", options: list[Option]) -> int | str:
         line = line.strip()
         if line.isdigit() and 1 <= int(line) <= len(options):
             engine.audio.ui("select")
-            engine.menu_selection = int(line) - 1             # <-- NOVO
-            return int(line) - 1
+            engine.menu_selection = int(line) - 1
             return int(line) - 1
         if line.lower() in ("q", "sair"):
             return "quit"
         if line.lower() in ("b", "voltar"):
-            return "back"
+            if allow_back:
+                return "back"
+            out.write("  Não há como voltar daqui.\n")
+            continue

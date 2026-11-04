@@ -61,7 +61,8 @@ class RenderContext:
             self.engine.warn(f"diretiva desconhecida: {name}")
             return
         spec.fn(self, value, closing)
-
+    rendering: bool = True                       # se estamos num ramo falso
+    cond_stack: list[dict] = field(default_factory=list) 
 
 class Renderer:
     def __init__(self, engine: "Engine"):
@@ -281,29 +282,43 @@ class Renderer:
         self.write(self.paint(message, self.theme("error")) + "\n")
 
     # --------------------------------------------------------------- tokens
-    def render(self, tokens: list[Token], note: object | None = None,
-               state: TextState | None = None) -> None:
+    _CONDITIONAL = frozenset({"if", "elif", "else"})
+
+    def render(self, tokens, note=None, state=None):
         if state is None:
             c = self.engine.state.get("cor_padrao")
             state = TextState(color=c, default_color=c)
         ctx = RenderContext(self.engine, self, state, note)
+        reachable_options: list[Option] = []
         for tok in tokens:
             if self.engine.stop_rendering:
                 break
+
+            if isinstance(tok, Tag):
+                # Em ramo falso, só processa tags de controle
+                if not ctx.rendering and tok.name not in _CONDITIONAL:
+                    continue
+                spec = self.engine.registry.resolve(tok.name)
+                if spec is None:
+                    continue
+                try:
+                    spec.fn(ctx, tok.value, tok.closing)
+                except Exception as exc:
+                    self.engine.warn(f"erro em {tok.raw}: {exc}")
+                continue
+
+            if not ctx.rendering:                   # pula texto/embeds/options
+                continue
+
             if isinstance(tok, Text):
                 self.type_text(tok.text, ctx.state, tok.theme)
             elif isinstance(tok, Option):
+                reachable_options.append(tok)      # ← só as alcançáveis viram menu
                 if tok.inline:
                     self.type_text(tok.label, ctx.state, "option")
             elif isinstance(tok, Embed):
                 self.print_ascii(tok.path, ctx.state)
             elif isinstance(tok, Literal):
                 self.print_block(tok.text, ctx.state.style())
-            elif isinstance(tok, Tag):
-                spec = self.engine.registry.resolve(tok.name)
-                if spec is None:
-                    continue
-                try:
-                    spec.fn(ctx, tok.value, tok.closing)
-                except Exception as exc:  # uma diretiva ruim não derruba a cena
-                    self.engine.warn(f"erro em {tok.raw}: {exc}")
+
+        return reachable_options

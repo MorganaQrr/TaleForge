@@ -102,6 +102,7 @@ DEFAULTS: dict[str, Any] = {
             "velocidade": "type_speed", "tremor": "shake", "tremer": "jolt",
             "som": "sound", "musica": "music", "camada": "layer",
             "arte": "ascii", "limpar": "clear", "estilo": "style", "fim": "end",
+            "se": "if", "senao": "else", "senaose": "elif",
         },
     },
     "plugins": {"modules": []},
@@ -112,6 +113,14 @@ DEFAULTS: dict[str, Any] = {
         "end_text": "— Fim —",
     },
     "dev": {"hot_reload": False, "poll_interval": 0.5, "instant_reload": True},
+     "menu": {
+        "show_numbers": True,
+        "number_confirms": True,
+        "spacing": 1,
+        "allow_back": True,
+        "hint": "↑/↓ ou número · Enter confirma · Backspace volta",
+        "hint_no_back": "↑/↓ ou número · Enter confirma",
+    },
 }
 
 

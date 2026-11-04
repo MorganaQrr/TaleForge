@@ -1,39 +1,71 @@
-# Configuração do projeto TaleForge.
-# Tudo é opcional: apague o que não precisar, os padrões da engine valem.
-
 [project]
 name  = "Meu RPG"
-start = "inicio"          # nota inicial (content/inicio.md)
+start = "inicio"
 
 [text]
-type_speed = 45           # caracteres por segundo
-# instant  = true         # desliga efeitos de digitação (bom para testar)
+type_speed = 45
+# instant  = true          # desliga digitação (testes)
 
 [theme]
 option        = "underline cyan"
 menu_selected = "bold cyan"
 
-# Presets chamáveis com [style:perigo] ... [/style]
-[styles.perigo]
-color = "#f33"
-bold  = true
-shake = 2
+[audio]
+enabled = true
+buffer  = 1024             # ↑ de 512 se o som estiver picotado
+# driver = "dummy"         # sem placa de som
 
-# [audio]
-# enabled = true
-# driver  = "dummy"       # rode sem placa de som
-
-# Camadas de áudio (opcional). Ative com [layer:nome] ou `layers:` no frontmatter.
-# [layers.ambiente]
-# volume = 0.6
-# sounds = [{ file = "vento.wav", loop = true }]
-#
-# [layers.criaturas]
-# parent = "ambiente"     # sub-camada: herda (multiplica) o volume do pai
-# sounds = [{ files = ["coruja.wav"], every = [8, 20], volume = 0.8 }]
+[menu]
+allow_back = true
 
 [behavior]
-on_dead_end = "quit"      # "quit" ou "back"
+on_dead_end = "quit"       # ou "back"
 
 [dev]
-hot_reload = false        # true = recarrega a nota ao salvar
+hot_reload  = true
+
+# ── Presets de estilo — use [style:nome] no texto ──
+[styles.perigo]
+color = "#b6ff3c"
+bold  = true
+shake = 3
+
+[styles.sussurro]
+color = "#4f6b3a"
+
+# ── Camadas de áudio ──
+# Ative com `layers: [ambiente, criaturas]` no frontmatter
+# ou [layer:ambiente] … [/layer] no corpo
+
+#[layers.ambiente]
+#volume = 0.6
+#sounds = [
+#  { file = "vento.ogg", loop = true },
+#  { file = "grilos.ogg", loop = true, volume = 0.4 },
+#]
+#[layers.criaturas]
+#parent = "ambiente"
+#sounds = [{ files = ["corvo.ogg", "lobo.ogg"], every = [8, 20], volume = 0.6 }]
+
+# ── Sons de interface ──
+[ui_sound]
+move   = "ui/move.wav"
+select = "ui/select.wav"
+volume = 1.0
+
+# ── Vozes de digitação ──
+[voice]
+enabled = true
+default = "padrao"
+volume  = 0.5
+every   = 2
+min_gap = 0.03
+
+# ── Aliases PT (já são padrão) — sobrescreva para customizar ──
+[directives]
+disabled = []
+aliases = { encerrar = "end", brilho = "glow" }
+
+# ── Plugins ──
+[plugins]
+modules = ["meu_plugin"]

@@ -1,3 +1,6 @@
+
+
+
 # TaleForge
 
 Engine modular em Python para **RPGs de texto no terminal Linux (TTY)**.
@@ -58,6 +61,7 @@ Diretivas têm o formato `[atributo:valor]`. As de **estado** valem até `[/atri
 | `type_speed` | estado | `[type_speed:0.5]` | Multiplicador da velocidade (`0.5` = metade, `0` = instantâneo); `[type_speed:80cps]` = absoluto |
 | `shake` | estado | `[shake:3]…[/shake]` | O texto digitado treme (amplitude em colunas) |
 | `style` | estado | `[style:perigo]…[/style]` | Aplica um preset de `[styles.perigo]` do config |
+| `reset` | estado | `[reset]` | Limpa todos os estilos correntes (cor, bg, bold, shake, speed, voice…) |
 | `voice` | estado | `[voice:evil]…[/voice]` | Voz de digitação (blips enquanto o texto é digitado). `[voice:off]` silencia |
 | `pause` | evento | `[pause:1.5]` / `[pause:1.5, force=true]` | Pausa em segundos. **`force=true`** = obrigatória, Enter não pula (ver [Pausas obrigatórias](#pausas-obrigatórias)) |
 | `wait` | evento | `[wait]` | Espera uma tecla (ignora skip) |
@@ -71,12 +75,15 @@ Diretivas têm o formato `[atributo:valor]`. As de **estado** valem até `[/atri
 | `volume` | evento | `[volume:criaturas=0.3]` | Ajusta volume de uma camada |
 | `som_menu` | evento | `[som_menu:move=x.wav select=y.wav]` | Troca os sons do menu daqui pra frente; `[som_menu:off]` silencia |
 | `set` | cena | `[set:hp=100]` / `[set:chars.x.nome=Colosso]` | Escreve em `engine.state` (ver [Manipulando estado](#manipulando-estado)) |
+| `add` | cena | `[add:hp=10]` / `[add:inventario=espada]` | Soma, concatena ou faz append em `engine.state` |
+| `unset` | cena | `[unset:senha]` / `[unset:party.0]` | Remove uma chave (dict) ou índice (lista) de `engine.state` |
+| `if` / `elif` / `else` | estado | `[if:hp>=50]…[elif:…]…[else]…[/if]` | Bloco condicional reativo a `engine.state` (ver [Condicionais](#condicionais)) |
 | `tag` | cena | `[tag: #title, #magia]` | Dispara hooks `tag_title`, `tag_magia` e o `on_tag` genérico (não aparece no texto) |
 | `hook` | evento | `[hook:dado 20]` | Chama um hook do projeto |
 | `goto` / `end` | evento | `[goto:cap2]`, `[end]` | Salta de nota ao fim do texto / encerra o jogo |
 
 Também: `**negrito**`, `*itálico*`, `` `código` ``, `# Título`, `> citação`, `---` (desligue com `text.markdown = false`); blocos ```` ``` ```` imprimem arte ASCII escrita na própria nota; `%% comentário %%` é ignorado; `\[` escapa um colchete. Tags desconhecidas ficam como texto (o `check` avisa).
-Os nomes têm *aliases* em português configuráveis (`[cor:red]`, `[pausa:1]`, `[tremor:3]`, `[som:x.wav]`… veja `directives.aliases`).
+Os nomes têm *aliases* em português configuráveis (`[cor:red]`, `[pausa:1]`, `[tremor:3]`, `[som:x.wav]`, `[se:hp>50]`… veja `directives.aliases`).
 
 ### Pausas obrigatórias
 
@@ -105,7 +112,9 @@ Os 3 frameworks de pausa:
 
 ### Manipulando estado
 
-`[set:caminho=valor]` escreve em `engine.state` (equivalente a `engine.state["a"]["b"] = ...` em hook). Aceita caminho pontilhado, dicts aninhados e listas:
+`engine.state` é um dicionário livre que hooks e diretivas compartilham. Três diretivas o manipulam **sem código**:
+
+#### `[set:caminho=valor]` — escreve
 
 ```markdown
 [set:nome_jogador=Demiurgo]                → state["nome_jogador"] = "Demiurgo"
@@ -120,7 +129,105 @@ Os 3 frameworks de pausa:
 
 A conversão de tipo é automática (`_coerce`): `int` → `float` → `bool`/`None` → string. Use aspas para **forçar** string (importante quando o valor seria interpretado: `[set:senha="1234"]` mantém `"1234"`, sem aspas viraria int).
 
-**Não** avalia expressões: `[set:x=x+1]` grava a string literal `"x+1"`. Para incrementar, use `add` (hook) ou calcule antes num hook.
+#### `[add:caminho=valor]` — incrementa / concatena / append
+
+```markdown
+[add:hp=10]                    → hp += 10 (int + int)
+[add:trilhas.perito.valor=0.5] → incrementa float
+[add:nome= Silva]              → concatena em string
+[add:inventario=espada]        → lista.append("espada")
+[add:contador=1]               → cria com 1 se a chave não existir
+```
+
+O comportamento depende do tipo atual: `int`+`int` soma, `float`+`num` soma, `str`+qualquer concatena, `list` faz `append`, `None`/chave ausente inicializa com o delta.
+
+#### `[unset:caminho]` — remove
+
+```markdown
+[unset:senha]               → state.pop("senha")
+[unset:chars.colosso]       → state["chars"].pop("colosso")
+[unset:party.0]             → state["party"].pop(0)
+```
+
+#### Limitações
+
+**Nenhuma** dessas avalia expressões: `[set:x=x+1]` grava a string literal `"x+1"`. Para incrementar de verdade, use `[add:x=1]` ou calcule em hook.
+
+### Condicionais
+
+`[if:condição] … [/if]` com `[elif:condição]` e `[else]` opcionais deixam o **próprio texto** reagir a `engine.state` — sem hook.
+
+```markdown
+[if:tem_chave]
+A chave gira na fechadura.
+[elif:forca>=15]
+A porta cede ao seu empurrão.
+[else]
+A porta não se move.
+[/if]
+```
+
+#### Sintaxe da condição
+
+| Forma | Significado |
+|-------|-------------|
+| `chave` | Verdadeiro se `state["chave"]` for truthy |
+| `not chave` / `!chave` | Negação |
+| `chave=valor` | Igualdade (`==` implícito) |
+| `chave!=valor` | Diferença |
+| `chave>N` / `>=N` / `<N` / `<=N` | Comparação numérica |
+| `chars.heroi.nome` | Caminho pontilhado (dict aninhado) |
+| `party.0.hp` | Índice de lista |
+
+O lado direito passa pelo mesmo `_coerce` de `[set]` (`[if:hp>10]` compara com int `10`, `[if:nome="Demiurgo"]` força string). Caminho inexistente → `None` → falso.
+
+#### O que acontece dentro de um ramo falso
+
+- **Texto**, `![[embed]]`, `[pause]`, `[sound]`, `[music]`, `[hook]`, `[goto]`, `[set]`, `[add]`… são **todos ignorados** — só tags de controle (`if`/`elif`/`else`) são processadas.
+- **Opções de menu** (`[[destino|Rótulo]]` ou `[[!hook|Rótulo]]`) **não entram no menu**.
+- Isso vale para `[if]` falso **e** para `[elif]` quando o `if` já foi verdadeiro.
+
+#### Exemplo com menu
+
+```markdown
+Você chega à encruzilhada.
+
+[if:not tem_mapa]
+[[pegar_mapa|Pegar o mapa da mesa]]
+[/if]
+
+[if:hp<30]
+[[!usar_pocao|Beber uma poção (HP baixo)]]
+[elif:mana<10]
+[[!meditar|Meditar para recuperar mana]]
+[/if]
+
+[[estrada|Seguir pela estrada]]
+[[floresta|Entrar na floresta]]
+```
+
+Se `tem_mapa` for `True`, a primeira opção **não aparece** — o jogador vê só as duas de baixo. Se `hp` for `>=30` e `mana` for `>=10`, nenhuma das duas condicionais aparece.
+
+#### Aninhamento
+
+```markdown
+[if:tem_chave]
+  [if:porta_trancada]
+  A chave gira.
+  [else]
+  A porta já estava aberta.
+  [/if]
+[else]
+  Sem chave.
+[/if]
+```
+
+#### Limitações
+
+- **Sem `and`/`or`** — aninhe blocos (`[if]` dentro de `[if]`).
+- **Sem avaliar expressões** — `[if:hp>50]` sim, `[if:hp+10>50]` não. Pré-calcule com `[add]` ou em hook.
+- Se quiser *agir* (tocar som, chamar hook) condicionalmente, também pode: coloque a tag dentro do ramo.
+- `taleforge check` **não simula estado** — valida links/hooks em **todos os ramos**. Se uma opção num `[if:false]` referenciar nota inexistente, o `check` reclama; o jogo a esconde em runtime.
 
 ### Pré-seleção de menu
 
@@ -325,7 +432,6 @@ ui_sound: off
 
 ```markdown
 [som_menu: off]                                  # silencia
-[som_menu: on]                                   # volta ao config
 [som_menu: move=ui/passo.wav]                    # só o move
 [som_menu: move=a.wav select=b.wav]              # os dois
 ```
@@ -453,7 +559,7 @@ taleforge/
 ├── engine.py       laço principal, navegação, hooks, cenas, tags, ask, choose
 ├── markup.py       parser da marcação → tokens
 ├── directives.py   diretivas embutidas (usam o mesmo @directive dos plugins)
-├── renderer.py     typewriter, estilos, tremor, ASCII, pause (force)
+├── renderer.py     typewriter, estilos, tremor, ASCII, pause (force), condicionais
 ├── menu.py         menu navegável (setas/números), sons de UI, menu_selection
 ├── audio.py        soundFX(), music(), camadas, voice, ui_sound, pause/resume
 ├── loader.py       busca de notas + frontmatter
@@ -475,14 +581,21 @@ pytest
 
 - Só Linux/macOS (usa `termios`); sem TUI em `textual` ainda e sem DSP com `numpy` (a mixagem é feita pelo `pygame.mixer`).
 - O tremor reescreve a linha atual, então vale para texto de uma linha (a quebra de linha automática é feita pela engine).
-- Não há condicionais em opções/texto: use hooks e `engine.state`.
-- `[set:...]` **não avalia expressões** — `[set:x=x+1]` grava a string literal. Calcule em hook.
+- `[if]`/`[elif]`/`[else]` **não** suportam `and`/`or` (anine) e **não** avaliam expressões (`[if:hp>50]` sim, `[if:hp+10>50]` não).
+- `[set:...]` e `[if:...]` **não avaliam expressões** — `[set:x=x+1]` grava a string literal. Calcule em hook ou use `[add]`.
 
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
 
 ## Novidades
+
+### Condicionais `[if]`/`[elif]`/`[else]`, `[add]` e `[unset]`
+
+- **`[if]`/`[elif]`/`[else]`** — blocos condicionais reativos a `engine.state`. Aceita `chave`, `not chave`, `chave=val`, `chave!=val`, `chave>N`, `chave>=N`, `chave<N`, `chave<=N`, caminho pontilhado (`chars.heroi.nome`) e listas (`party.0.hp`). Opções dentro de ramos falsos **não aparecem no menu**; efeitos (som, pausa, hook, goto, `[set]`…) em ramos falsos são ignorados. Sem `and`/`or` (anine) e sem avaliar expressões (compare valor direto).
+- **`[add:caminho=valor]`** — incrementa (`hp+=10`), concatena (`nome+= Silva`) ou faz append em lista (`inventario=espada`) em `engine.state`, sem hook. Aceita caminho pontilhado e listas.
+- **`[unset:caminho]`** — remove uma chave (dict) ou índice (lista) de `engine.state` sem hook. Aceita caminho pontilhado (`chars.colosso`, `party.0`).
+- **Aliases PT** — `[se:cond]…[/se]`, `[senaose:cond]`, `[senao]` funcionam como `[if]`, `[elif]`, `[else]`. Registre outros em `[directives] aliases`.
 
 ### `force`, `set`, `choose` e pausa de música
 
@@ -505,3 +618,4 @@ MIT — veja [LICENSE](LICENSE).
 - As cercas ``` de abertura e fechamento são removidas automaticamente ao exibir um arquivo `.md`.
 - Cor da arte: `[ascii:arte.md, color=#ed9e00]` (alias em português: `[arte:arte.md, color=#ed9e00]`). Quando uma cor é definida, os códigos ANSI embutidos na arte são descartados para a cor da nota valer.
 - A extensão `.md` já está na lista padrão `ascii.extensions`. Projetos com `[ascii] extensions` próprio no `config.toml` precisam incluí-la.
+---
