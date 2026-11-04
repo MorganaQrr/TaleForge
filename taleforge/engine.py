@@ -255,7 +255,7 @@ class Engine:
         r.begin_note()
         options = r.render(tokens, note)               # antes: r.render(...); options_of(tokens)
         if self._nav:
-            retur
+            return
 
         # Opções extras (extra_options{}) =============================
         for name, content in self.extra_options.items():
